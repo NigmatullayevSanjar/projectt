@@ -1,13 +1,14 @@
+import os
 import asyncpg
 
 # ======================================================
-#  DATABASE SOZLAMALARI
+#  DATABASE SOZLAMALARI (Render Env & Local moslashuv)
 # ======================================================
-DB_HOST = "localhost"
-DB_PORT = 5432
-DB_NAME = "kafel_db"
-DB_USER = "postgres"
-DB_PASS = "5056"
+# Render o'zi taqdim etadigan tayyor ulanish satori, agar u yo'q bo'lsa mahalliy baza ishlaydi
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", 
+    "postgresql://postgres:5056@localhost:5432/kafel_db"
+)
 # ======================================================
 
 pool: asyncpg.Pool = None
@@ -15,10 +16,9 @@ pool: asyncpg.Pool = None
 
 async def init_db():
     global pool
-    pool = await asyncpg.create_pool(
-        host=DB_HOST, port=DB_PORT,
-        database=DB_NAME, user=DB_USER, password=DB_PASS
-    )
+    # asyncpg dsni (connection string) formatini juda yaxshi taniydi
+    pool = await asyncpg.create_pool(dsn=DATABASE_URL)
+    
     async with pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -43,7 +43,7 @@ async def init_db():
                 added_at    TIMESTAMP DEFAULT NOW()
             );
         """)
-    print("✅ PostgreSQL ulanish muvaffaqiyatli!")
+    print("✅ PostgreSQL ulanishi muvaffaqiyatli yakunlandi!")
 
 
 # ===== USERS =====
@@ -102,11 +102,12 @@ async def db_count_kafels():
 
 # ===== HELPER =====
 def kafel_card(k):
+    # bot.py dagi parse_mode="HTML" ekanligini hisobga olib, formatni HTML ga o'zgartirdim
     return (
-        f"🏷 *{k['name']}*\n"
-        f"📐 O'lchami: `{k['size']}`\n"
+        f"🏷 <b>{k['name']}</b>\n"
+        f"📐 O'lchami: <code>{k['size']}</code>\n"
         f"🔲 Turi: {k['type']}\n"
         f"🎨 Rangi: {k['color']}\n"
-        f"💰 Narxi: *{k['price']:,} so'm*\n"
+        f"💰 Narxi: <b>{k['price']:,} so'm</b>\n"
         f"📝 {k['description'] or '—'}"
     )

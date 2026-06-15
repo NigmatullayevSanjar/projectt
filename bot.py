@@ -1,9 +1,10 @@
 """
 ╔══════════════════════════════════════╗
-║   KAFEL DO'KONI — YAGONA BOT         ║
+║   KAFEL DO'KONI — RENDER PRODUCTION  ║
 ║   Admin + Mijoz — bitta token        ║
 ╚══════════════════════════════════════╝
 """
+import os
 import logging
 import asyncio
 import html
@@ -15,15 +16,16 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.filters.callback_data import CallbackData
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiohttp import web
 
 import db
 
 # ══════════════════════════════════════
-#   SOZLAMA  — faqat shu qismni o'zgartiring
+#   SOZLAMA & XAVFSIZLIK
 # ══════════════════════════════════════
-BOT_TOKEN = "8904101802:AAGrQVi5ZKgyE3wRcD1tWsIgkpIw9WMyjq0"   # @BotFather dan token
-ADMIN_IDS = [5320183219, 1087021505]             # Sizning Telegram ID
-# ══════════════════════════════════════
+# Render Env Variables orqali o'qish, agar bo'lmasa default qiymat
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8904101802:AAGrQVi5ZKgyE3wRcD1tWsIgkpIw9WMyjq0")
+ADMIN_IDS = [5320183219, 1087021505]
 
 logging.basicConfig(level=logging.INFO)
 bot     = Bot(token=BOT_TOKEN)
@@ -59,7 +61,6 @@ class AddKafel(StatesGroup):
 class Broadcast(StatesGroup):
     text = State()
 
-# Mijoz uchun to'liq katta tugmali qidiruv zanjiri (FSM)
 class ClientFilter(StatesGroup):
     select_size  = State()
     select_type  = State()
@@ -85,10 +86,7 @@ def admin_kb():
     ], resize_keyboard=True)
 
 def cancel_kb():
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="❌ Bekor qilish")]],
-        resize_keyboard=True
-    )
+    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Bekor qilish")]], resize_keyboard=True)
 
 def phone_kb():
     return ReplyKeyboardMarkup(keyboard=[
@@ -103,13 +101,13 @@ def skip_kb():
     ], resize_keyboard=True)
 
 
-# ── DINAMIK KATTA TUGMALAR (Rasmizdagidek keng formatda) ──
+# ── DINAMIK TUGMALAR ──
 def get_sizes_reply_kb(kafels):
     sizes = sorted(list(set([str(k['size']).strip() for k in kafels if k.get('size')])))
     builder = ReplyKeyboardBuilder()
     for size in sizes:
         builder.button(text=f"📐 {size}")
-    builder.adjust(1) # Har qatorda 1 tadan keng tugma
+    builder.adjust(1)
     builder.row(KeyboardButton(text="⬅️ Orqaga"))
     return builder.as_markup(resize_keyboard=True)
 
@@ -136,8 +134,6 @@ def get_colors_reply_kb(kafels, size_name, type_name):
 # ── MAHSULOT NAZORATI (INLINE) ──
 def get_product_control_kb(size_name: str, type_name: str, color_name: str, current_page: int, total_pages: int):
     builder = InlineKeyboardBuilder()
-    
-    # Sahifa raqamlari (to'g'ridan-to'g'ri raqamli tugmalar)
     for p in range(total_pages):
         btn_text = f"[{p + 1}]" if p == current_page else str(p + 1)
         builder.button(
@@ -145,8 +141,6 @@ def get_product_control_kb(size_name: str, type_name: str, color_name: str, curr
             callback_data=ProductPagination(size_name=size_name, type_name=type_name, color_name=color_name, page=p).pack()
         )
     builder.adjust(5)
-    
-    # Tavsif tugmasi pastki alohida qatorda
     builder.row(
         types.InlineKeyboardButton(
             text=f"📄 {current_page + 1}/{total_pages} (Tavsif)", 
@@ -157,7 +151,7 @@ def get_product_control_kb(size_name: str, type_name: str, color_name: str, curr
 
 
 # ══════════════════════════════════════
-#   /START & MIJOZ PROFILI
+#   HANDLERS BO'LIMI
 # ══════════════════════════════════════
 @dp.message(CommandStart())
 async def start(message: types.Message, state: FSMContext):
@@ -172,13 +166,9 @@ async def start(message: types.Message, state: FSMContext):
         u = await db.db_get_user(uid)
         await message.answer(f"👋 Xush kelibsiz, <b>{html.escape(u['first_name'])} {html.escape(u['last_name'])}</b>!\nBo'limni tanlang:", parse_mode="HTML", reply_markup=mijoz_kb())
     else:
-        await message.answer("Context: Yangi mijoz ro'yxatdan o'tishi.\n📝 <b>Ismingizni</b> kiriting:", parse_mode="HTML", reply_markup=cancel_kb())
+        await message.answer("📝 <b>Ismingizni</b> kiriting:", parse_mode="HTML", reply_markup=cancel_kb())
         await state.set_state(Reg.first_name)
 
-
-# ══════════════════════════════════════
-#   RO'YXATDAN O'TISH KODLARI (Sodiqlik uchun)
-# ══════════════════════════════════════
 @dp.message(Reg.first_name)
 async def reg_ism(message: types.Message, state: FSMContext):
     if message.text == "❌ Bekor qilish": await state.clear(); await message.answer("❌ Bekor qilindi.", reply_markup=ReplyKeyboardRemove()); return
@@ -212,12 +202,6 @@ async def _save_user(message: types.Message, state: FSMContext, phone: str):
     await state.clear()
     await message.answer(f"🎉 <b>Ro'yxatdan muvaffaqiyatli o'tdingiz!</b>", parse_mode="HTML", reply_markup=mijoz_kb())
 
-
-# ══════════════════════════════════════
-#   MIJOZ FILTR TIZIMI (TO'LIQ KATTA TUGMALARDA)
-# ══════════════════════════════════════
-
-# 1-QADAM: Kafellar ro'yxati bosilganda (O'lchamlar chiqadi)
 @dp.message(F.text == "🏪 Kafellar ro'yxati")
 async def client_show_sizes(message: types.Message, state: FSMContext):
     kafels = await db.db_get_kafels()
@@ -227,59 +211,44 @@ async def client_show_sizes(message: types.Message, state: FSMContext):
     await state.set_state(ClientFilter.select_size)
     await message.answer("📐 <b>Kafel o'lchamini tanlang:</b>", parse_mode="HTML", reply_markup=get_sizes_reply_kb(kafels))
 
-# 2-QADAM: O'lcham tanlanganda (Turlari chiqadi)
 @dp.message(ClientFilter.select_size, F.text.startswith("📐 "))
 async def client_show_types(message: types.Message, state: FSMContext):
     size = message.text.replace("📐 ", "").strip()
     await state.update_data(chosen_size=size)
-    
     kafels = await db.db_get_kafels()
     kb = get_types_reply_kb(kafels, size)
-    
     await state.set_state(ClientFilter.select_type)
     await message.answer(f"🧱 <b>{size} o'lchamdagi kafel turini tanlang:</b>", parse_mode="HTML", reply_markup=kb)
 
-# 3-QADAM: Tur tanlanganda (Ranglar chiqadi)
 @dp.message(ClientFilter.select_type, F.text.startswith("🧱 "))
 async def client_show_colors(message: types.Message, state: FSMContext):
     type_name = message.text.replace("🧱 ", "").strip()
     await state.update_data(chosen_type=type_name)
-    
     data = await state.get_data()
     kafels = await db.db_get_kafels()
     kb = get_colors_reply_kb(kafels, data['chosen_size'], type_name)
-    
     await state.set_state(ClientFilter.select_color)
     await message.answer(f"🎨 <b>Rangini tanlang:</b>", parse_mode="HTML", reply_markup=kb)
 
-# 4-QADAM: Rang tanlanganda (Yakuniy ro'yxat chiqadi)
 @dp.message(ClientFilter.select_color, F.text.startswith("🎨 "))
 async def client_finalize_filter(message: types.Message, state: FSMContext):
     color_name = message.text.replace("🎨 ", "").strip()
     data = await state.get_data()
-    
     size_name = data['chosen_size']
     type_name = data['chosen_type']
-    
-    await state.clear() # Qidiruv yakunlandi, stateni tozalaymiz
+    await state.clear()
     await message.answer("🔄 Kafellar yuklanmoqda...", reply_markup=mijoz_kb())
-    
-    # Bazadan to'liq mos keladiganlarni qidiramiz
     kafels = await db.db_get_kafels()
     filtered = [
         k for k in kafels if str(k['size']).strip() == size_name 
         and str(k.get('type') or k.get('type_', '')).strip() == type_name
         and str(k['color']).strip() == color_name
     ]
-    
     if not filtered:
         await message.answer("📭 Bunday kafel topilmadi.")
         return
-        
     await send_kafel_page(message, filtered, size_name, type_name, color_name, 0)
 
-
-# ── ORQAGA QAYTISH TUGMALARI HANDLERI (KATTA TUGMALAR UCHUN) ──
 @dp.message(ClientFilter.select_size, F.text == "⬅️ Orqaga")
 async def back_to_menu(message: types.Message, state: FSMContext):
     await state.clear()
@@ -299,9 +268,20 @@ async def back_to_type(message: types.Message, state: FSMContext):
     await state.set_state(ClientFilter.select_type)
     await message.answer(f"🧱 <b>Kafel turini tanlang:</b>", parse_mode="HTML", reply_markup=kb)
 
+@dp.message(F.text == "👤 Mening ma'lumotlarim")
+async def my_info(message: types.Message):
+    u = await db.db_get_user(message.from_user.id)
+    if not u: await message.answer("❗ Ro'yxatdan o'ting: /start"); return
+    reg = u['registered_at'].strftime("%d.%m.%Y %H:%M") if u['registered_at'] else "—"
+    await message.answer(f"👤 <b>Mening ma'lumotlarim:</b>\n\n📛 Ism: <b>{html.escape(u['first_name'])}</b>\n📛 Familiya: <b>{html.escape(u['last_name'])}</b>\n📱 Telefon: <code>{html.escape(u['phone'])}</code>\n🔖 Username: @{html.escape(u['username'])}\n📅 Ro'yxat: {reg}", parse_mode="HTML")
+
+@dp.message(F.text == "📞 Bog'lanish")
+async def contact(message: types.Message):
+    await message.answer("📞 <b>Kafel Do'koni — Aloqa</b>\n\n📱 Tel: +998 97 454 50 56\n📍 Manzil: Toshkent sh.\n⏰ Vaqt: 09:00 — 18:00\n📩 Telegram: @admin_username", parse_mode="HTML")
+
 
 # ══════════════════════════════════════
-#   PAGINATION & TAVSIF (XATOXIZ)
+#   PAGINATION & AUXILIARY FUNCTIONS
 # ══════════════════════════════════════
 @dp.callback_query(ProductPagination.filter())
 async def process_pagination(callback_query: types.CallbackQuery, callback_data: ProductPagination):
@@ -314,23 +294,19 @@ async def process_pagination(callback_query: types.CallbackQuery, callback_data:
     await callback_query.answer()
     try: await callback_query.message.delete()
     except: pass
-    
     await send_kafel_page(callback_query.message, filtered, callback_data.size_name, callback_data.type_name, callback_data.color_name, callback_data.page)
 
 @dp.callback_query(F.data.startswith("kafel_info:"))
 async def process_kafel_description(callback_query: types.CallbackQuery):
     _, size, v_type, color, page_str = callback_query.data.split(":")
     page = int(page_str)
-    
     kafels = await db.db_get_kafels()
     filtered = [k for k in kafels if str(k['size']).strip() == size and str(k.get('type') or k.get('type_', '')).strip() == v_type and str(k['color']).strip() == color]
-    
     await callback_query.answer()
     if page < len(filtered):
         k = filtered[page]
         tavsif = k.get('description') or "Ushbu kafel uchun qo'shimcha tavsif kiritilmagan."
         info_text = f"📋 <b>#{k['id']} - Kafel to'liq tavsifi:</b>\n\n{html.escape(str(tavsif))}"
-        
         close_kb = InlineKeyboardBuilder()
         close_kb.button(text="❌ Yopish", callback_data="close_info_msg")
         await callback_query.message.answer(text=info_text, parse_mode="HTML", reply_markup=close_kb.as_markup())
@@ -344,7 +320,6 @@ async def close_info_message(callback_query: types.CallbackQuery):
 async def send_kafel_page(message: types.Message, kafels_list, size: str, t_name: str, c_name: str, page: int):
     total_pages = len(kafels_list)
     k = kafels_list[page]
-    
     text = (
         f"📦 <b>#{k['id']} Kafel</b>\n\n"
         f"🔹 <b>Nomi:</b> {html.escape(str(k['name']))}\n"
@@ -354,26 +329,14 @@ async def send_kafel_page(message: types.Message, kafels_list, size: str, t_name
         f"💰 <b>Narxi:</b> {k['price']:,} so'm\n\n"
         f"💡 <i>Batafsil tavsif uchun pastdagi tugmani bosing.</i>"
     )
-    
     kb = get_product_control_kb(size, t_name, c_name, page, total_pages)
     if k.get('photo_id'): await message.answer_photo(photo=k['photo_id'], caption=text, parse_mode="HTML", reply_markup=kb)
     else: await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ══════════════════════════════════════
-#   MIJOZ — PROFILE & CONTACT & ADMIN SECTIONS (O'z holicha qoldi)
+#   ADMIN SECTIONS (O'z holicha qoldi)
 # ══════════════════════════════════════
-@dp.message(F.text == "👤 Mening ma'lumotlarim")
-async def my_info(message: types.Message):
-    u = await db.db_get_user(message.from_user.id)
-    if not u: await message.answer("❗ Ro'yxatdan o'ting: /start"); return
-    reg = u['registered_at'].strftime("%d.%m.%Y %H:%M") if u['registered_at'] else "—"
-    await message.answer(f"👤 <b>Mening ma'lumotlarim:</b>\n\n📛 Ism: <b>{html.escape(u['first_name'])}</b>\n📛 Familiya: <b>{html.escape(u['last_name'])}</b>\n📱 Telefon: <code>{html.escape(u['phone'])}</code>\n🔖 Username: @{html.escape(u['username'])}\n📅 Ro'yxat: {reg}", parse_mode="HTML")
-
-@dp.message(F.text == "📞 Bog'lanish")
-async def contact(message: types.Message):
-    await message.answer("📞 <b>Kafel Do'koni — Aloqa</b>\n\n📱 Tel: +998 97 454 50 56\n📍 Manzil: Toshkent sh.\n⏰ Vaqt: 09:00 — 18:00\n📩 Telegram: @admin_username", parse_mode="HTML")
-
 @dp.message(F.text == "👁 Mijoz ko'rinishi")
 async def admin_to_client(message: types.Message):
     if not is_admin(message.from_user.id): return
@@ -518,12 +481,32 @@ async def broadcast_do(message: types.Message, state: FSMContext):
 
 
 # ══════════════════════════════════════
-#   MAIN RUN
+#   RENDER WEB SERVER & RUN
 # ══════════════════════════════════════
+async def handle_hc(request):
+    """Render uchun tiriklik signali (Health Check)"""
+    return web.Response(text="Bot is perfectly alive!")
+
 async def main():
     await db.init_db()
-    print("🚀 Bot ishga tushdi...")
-    await dp.start_polling(bot)
+    print("🚀 Bot Polling rejimida ishga tushdi...")
+    
+    # Kichik fon serverini sozlaymiz (Render uyquga ketmasligi uchun)
+    app = web.Application()
+    app.router.add_get("/", handle_hc)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render o'zi taqdim etadigan PORT, bo'lmasa 8080 port
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌐 Fake Web Server {port}-portda ishga tushdi.")
+    
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await runner.cleanup()
 
 if __name__ == "__main__":
     asyncio.run(main())
