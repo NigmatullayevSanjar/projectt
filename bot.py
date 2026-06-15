@@ -24,7 +24,7 @@ import db
 #   SOZLAMA & XAVFSIZLIK
 # ══════════════════════════════════════
 # Render Env Variables orqali o'qish, agar bo'lmasa default qiymat
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8904101802:AAGrQVi5ZKgyE3wRcD1tWsIgkpIw9WMyjq0")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8846832394:AAHH_JxI2lBkEVT23uByBJMWYs3GzC6a-s4")
 ADMIN_IDS = [5320183219, 1087021505]
 
 logging.basicConfig(level=logging.INFO)
