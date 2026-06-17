@@ -4,7 +4,6 @@ import asyncpg
 # ======================================================
 #  DATABASE SOZLAMALARI (Render Env & Local moslashuv)
 # ======================================================
-# Render o'zi taqdim etadigan tayyor ulanish satori, agar u yo'q bo'lsa mahalliy baza ishlaydi
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
     "postgresql://postgres:5056@localhost:5432/kafel_db"
@@ -16,7 +15,6 @@ pool: asyncpg.Pool = None
 
 async def init_db():
     global pool
-    # asyncpg dsni (connection string) formatini juda yaxshi taniydi
     pool = await asyncpg.create_pool(dsn=DATABASE_URL)
     
     async with pool.acquire() as conn:
@@ -34,9 +32,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS kafels (
                 id          SERIAL PRIMARY KEY,
                 name        TEXT NOT NULL,
-                size        TEXT NOT NULL,
-                type        TEXT NOT NULL,
-                color       TEXT NOT NULL,
+                category    TEXT NOT NULL,  -- Ceramika, Shisha, Toshli va h.k.
                 price       BIGINT NOT NULL,
                 description TEXT DEFAULT '',
                 photo_id    TEXT DEFAULT NULL,
@@ -75,16 +71,20 @@ async def db_count_users():
 
 
 # ===== KAFELS =====
-async def db_add_kafel(name, size, type_, color, price, description, photo_id):
+async def db_add_kafel(name, category, price, description, photo_id):
     async with pool.acquire() as conn:
         return await conn.fetchrow("""
-            INSERT INTO kafels (name, size, type, color, price, description, photo_id)
-            VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *
-        """, name, size, type_, color, price, description, photo_id)
+            INSERT INTO kafels (name, category, price, description, photo_id)
+            VALUES ($1,$2,$3,$4,$5) RETURNING *
+        """, name, category, price, description, photo_id)
 
 async def db_get_kafels():
     async with pool.acquire() as conn:
         return await conn.fetch("SELECT * FROM kafels ORDER BY id")
+
+async def db_get_kafels_by_category(category):
+    async with pool.acquire() as conn:
+        return await conn.fetch("SELECT * FROM kafels WHERE category=$1 ORDER BY id", category)
 
 async def db_get_kafel(kid):
     async with pool.acquire() as conn:
@@ -102,12 +102,9 @@ async def db_count_kafels():
 
 # ===== HELPER =====
 def kafel_card(k):
-    # bot.py dagi parse_mode="HTML" ekanligini hisobga olib, formatni HTML ga o'zgartirdim
     return (
         f"🏷 <b>{k['name']}</b>\n"
-        f"📐 O'lchami: <code>{k['size']}</code>\n"
-        f"🔲 Turi: {k['type']}\n"
-        f"🎨 Rangi: {k['color']}\n"
+        f"🗂 Kategoriya: <code>{k['category']}</code>\n"
         f"💰 Narxi: <b>{k['price']:,} so'm</b>\n"
-        f"📝 {k['description'] or '—'}"
+        f"📝 Tavsif: {k['description'] or '—'}"
     )
